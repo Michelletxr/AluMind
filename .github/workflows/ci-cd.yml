@@ -1,0 +1,72 @@
+name: Build and Deploy with Docker Compose
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Etapa 1: Checkout do código
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Etapa 2: Configurar o Java 21
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      # Etapa 3: Verificar Qualidade do Código
+      - name: Run Code Quality Check
+        run: mvn checkstyle:check
+        continue-on-error: true
+
+      # Etapa 4: Construir a aplicação
+      - name: Build the project
+        run: mvn clean package -DskipTests=true
+
+      # Etapa 5: Fazer upload do artefato gerado
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: spring-boot-app
+          path: target/*.jar
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      # Etapa 1: Checkout do código
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Etapa 2: Baixar o artefato do job anterior
+      - name: Download Build Artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: spring-boot-app
+
+      # Etapa 3: Configurar Deploy via SSH e docker-compose
+      - name: Deploy to Remote Server
+        uses: appleboy/ssh-action@v0.1.8
+        with:
+          host: ${{ secrets.REMOTE_HOST }}
+          username: ${{ secrets.REMOTE_USER }}
+          key: ${{ secrets.REMOTE_KEY }}
+          port: 22
+          script: |
+            # Criar diretório para a aplicação no servidor
+            mkdir -p ~/apps/spring-boot-app
+
+            # Copiar artefato e arquivos de configuração para o servidor
+            scp docker-compose.yml ~/apps/spring-boot-app/
+            scp target/*.jar ~/apps/spring-boot-app/app.jar
+
+            # Navegar até o diretório da aplicação
+            cd ~/apps/spring-boot-app
+
+            # Atualizar e reiniciar os containers com docker-compose
+            docker-compose down
+            docker-compose up -d --build
